@@ -1,8 +1,9 @@
 use std::{
-    fs::File,
+    fs,
     io::{BufWriter, Write},
 };
 
+use directories::BaseDirs;
 use regex::escape;
 use serde_json::{Map, Value};
 
@@ -49,12 +50,12 @@ fn is_normal_workspace(val: &Value) -> bool {
 
 fn is_leaf_node(val: &Map<String, Value>) -> bool {
     val.get("type").unwrap().as_str().unwrap() == "con"
-        && !val
+        && val
             .get("nodes")
-            .is_some_and(|ns| !ns.as_array().unwrap().is_empty())
-        && !val
+            .is_none_or(|ns| ns.as_array().unwrap().is_empty())
+        && val
             .get("floating_nodes")
-            .is_some_and(|ns| !ns.as_array().unwrap().is_empty())
+            .is_none_or(|ns| ns.as_array().unwrap().is_empty())
 }
 
 fn is_zero_rect(val: &Map<String, Value>) -> bool {
@@ -62,21 +63,6 @@ fn is_zero_rect(val: &Map<String, Value>) -> bool {
         && val.get("y").unwrap().as_u64().unwrap() == 0
         && val.get("width").unwrap().as_u64().unwrap() == 0
         && val.get("height").unwrap().as_u64().unwrap() == 0
-}
-
-fn find_workspaces(mut tree: Value) -> Vec<Value> {
-    if is_normal_workspace(&tree) {
-        return vec![tree];
-    }
-
-    let mut res: Vec<Value> = vec![];
-    run_for_all_nodes_mut(&mut tree, |v| {
-        for child in v.as_array_mut().unwrap().drain(..) {
-            res.append(&mut find_workspaces(child))
-        }
-    });
-
-    res
 }
 
 // https://github.com/i3/i3/blob/2746e0319b03a8a5a02b57a69b1fb47e0a9c22f1/i3-save-tree#L105
@@ -154,14 +140,14 @@ fn convert_to_layout(tree: &mut Value) {
             if let Some(class) = props_obj.get("class") {
                 swallows.insert(
                     "class".to_string(),
-                    Value::String("^".to_string() + escape(class.as_str().unwrap()).as_str() + "$"),
+                    Value::String(format!("^{}$", escape(class.as_str().unwrap()).as_str())),
                 );
             }
 
             if let Some(class) = props_obj.get("instance") {
                 swallows.insert(
                     "instance".to_string(),
-                    Value::String("^".to_string() + escape(class.as_str().unwrap()).as_str() + "$"),
+                    Value::String(format!("^{}$", escape(class.as_str().unwrap()).as_str())),
                 );
             }
 
@@ -180,22 +166,62 @@ fn convert_to_layout(tree: &mut Value) {
     });
 }
 
-pub fn save_tree(tree: Value) {
-    let mut workspaces = find_workspaces(tree);
+pub fn find_workspaces(mut tree: Value) -> Vec<Value> {
+    if is_normal_workspace(&tree) {
+        return vec![tree];
+    }
+
+    let mut res: Vec<Value> = vec![];
+    run_for_all_nodes_mut(&mut tree, |v| {
+        for child in v.as_array_mut().unwrap().drain(..) {
+            res.append(&mut find_workspaces(child))
+        }
+    });
+
+    res
+}
+
+pub fn get_all_windows(trees: &Vec<Value>) -> Vec<u32> {
+    let mut res: Vec<u32> = vec![];
+
+    for tree in trees {
+        if let serde_json::Value::Number(i) = tree.get("window").unwrap() {
+            res.push(i.as_u64().unwrap() as u32)
+        };
+
+        run_for_all_nodes(tree, |v| {
+            res.append(&mut get_all_windows(v.as_array().unwrap()));
+        });
+    }
+
+    res
+}
+
+pub fn save_workspaces(mut workspaces: Vec<Value>) {
+    let base_dirs = BaseDirs::new().expect("Failed to get base directories");
+    let mut dir = base_dirs.data_local_dir().to_path_buf();
+    dir.push("i3-revive");
+    dir.push("layouts");
+    fs::create_dir_all(&dir).expect("Failed to create directory");
+
     for ws in workspaces.iter_mut() {
         let ws_name_node = ws.get("name").unwrap().to_owned();
         let ws_name = ws_name_node.as_str().unwrap();
 
         convert_to_layout(ws);
 
-        let f = File::create("./layouts/ws_".to_string() + ws_name).expect("Failed to create file");
+        let mut file_path = dir.clone();
+        file_path.push(format!("ws_{}", ws_name));
+        let f = fs::File::create(file_path).expect("Failed to create file");
         let mut f = BufWriter::new(f);
 
         run_for_all_nodes(ws, |v| {
             for child in v.as_array().unwrap().iter() {
                 write!(
                     f,
-                    "{}\n\n",
+                    "{}
+
+",
                     serde_json::to_string_pretty(child).expect("Failed to serialize")
                 )
                 .expect("Failed to write to file");
