@@ -1,10 +1,12 @@
 use i3_revive::{
+    config::load_config,
     i3_tree::{find_workspaces, get_all_windows, save_workspaces},
     i3ipc::{connect_i3, get_tree},
     process::save_processes,
 };
 
 fn main() {
+    load_config();
     let mut stream = connect_i3().expect("Failed to connect to i3");
     let root = get_tree(&mut stream).expect("Failed to get tree");
 

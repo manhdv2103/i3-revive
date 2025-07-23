@@ -7,6 +7,13 @@ use directories::BaseDirs;
 use regex::escape;
 use serde_json::{Map, Value};
 
+#[derive(Debug)]
+pub struct Window {
+    pub id: u32,
+    pub name: String,
+    pub class: String,
+}
+
 // https://github.com/i3/i3/blob/2746e0319b03a8a5a02b57a69b1fb47e0a9c22f1/i3-save-tree#L88
 const ALLOWED_KEYS: &[&str] = &[
     "type",
@@ -181,12 +188,21 @@ pub fn find_workspaces(mut tree: Value) -> Vec<Value> {
     res
 }
 
-pub fn get_all_windows(trees: &Vec<Value>) -> Vec<u32> {
-    let mut res: Vec<u32> = vec![];
+pub fn get_all_windows(trees: &Vec<Value>) -> Vec<Window> {
+    let mut res: Vec<Window> = vec![];
 
     for tree in trees {
-        if let serde_json::Value::Number(i) = tree.get("window").unwrap() {
-            res.push(i.as_u64().unwrap() as u32)
+        if let (Some(id), Some(name), Some(props)) = (
+            tree.get("window"),
+            tree.get("name"),
+            tree.get("window_properties"),
+        ) {
+            let class = props.get("class").unwrap().as_str().unwrap();
+            res.push(Window {
+                id: id.as_u64().unwrap() as u32,
+                name: name.as_str().unwrap().to_string(),
+                class: class.to_string(),
+            })
         };
 
         run_for_all_nodes(tree, |v| {
@@ -219,9 +235,7 @@ pub fn save_workspaces(mut workspaces: Vec<Value>) {
             for child in v.as_array().unwrap().iter() {
                 write!(
                     f,
-                    "{}
-
-",
+                    "{}",
                     serde_json::to_string_pretty(child).expect("Failed to serialize")
                 )
                 .expect("Failed to write to file");

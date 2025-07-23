@@ -1,7 +1,9 @@
-use std::{fs, io, os::unix::fs::PermissionsExt, path::Path};
-
+use crate::config::CONFIG;
+use crate::i3_tree;
 use directories::BaseDirs;
+use regex::Regex;
 use serde::{Deserialize, Serialize};
+use std::{fs, io, os::unix::fs::PermissionsExt, path::Path};
 use xcb::{x, XidNew};
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -10,7 +12,7 @@ struct Process {
     working_directory: String,
 }
 
-fn get_pids(windows: &Vec<u32>) -> xcb::Result<Vec<u32>> {
+fn get_pid(window: u32) -> xcb::Result<u32> {
     let (conn, _) = xcb::Connection::connect(None)?;
 
     let wm_pid = conn.send_request(&x::InternAtom {
@@ -20,24 +22,18 @@ fn get_pids(windows: &Vec<u32>) -> xcb::Result<Vec<u32>> {
     let wm_pid = conn.wait_for_reply(wm_pid)?.atom();
     assert!(wm_pid != x::ATOM_NONE, "_NET_WM_PID is not supported");
 
-    let mut res: Vec<u32> = vec![];
+    let cookie = conn.send_request(&x::GetProperty {
+        delete: false,
+        window: unsafe { XidNew::new(window) },
+        property: wm_pid,
+        r#type: x::ATOM_CARDINAL,
+        long_offset: 0,
+        long_length: 1024,
+    });
+    let reply = conn.wait_for_reply(cookie)?;
+    let pid = reply.value::<u32>()[0];
 
-    for window in windows {
-        let cookie = conn.send_request(&x::GetProperty {
-            delete: false,
-            window: unsafe { XidNew::new(*window) },
-            property: wm_pid,
-            r#type: x::ATOM_CARDINAL,
-            long_offset: 0,
-            long_length: 1024,
-        });
-        let reply = conn.wait_for_reply(cookie)?;
-        let pid = reply.value::<u32>()[0];
-
-        res.push(pid);
-    }
-
-    Ok(res)
+    Ok(pid)
 }
 
 // https://docs.rs/is_executable/latest/src/is_executable/lib.rs.html#38
@@ -96,13 +92,25 @@ fn get_process_cwd(pid: u32) -> io::Result<String> {
     Ok(path.into_os_string().into_string().unwrap())
 }
 
-pub fn save_processes(windows: Vec<u32>) {
-    let pids = get_pids(&windows).unwrap();
-    let processes = pids
+pub fn save_processes(windows: Vec<i3_tree::Window>) {
+    let config = CONFIG.get().unwrap();
+    let processes = windows
         .iter()
-        .map(|&pid| Process {
-            command: get_process_cmd(pid).unwrap(),
-            working_directory: get_process_cwd(pid).unwrap(),
+        .map(|w| {
+            let mut command: Option<Vec<String>> = None;
+            for mapping in &config.window_command_mappings {
+                let re = Regex::new(&mapping.regex).unwrap();
+                if re.is_match(&w.name) || re.is_match(&w.class) {
+                    command = Some(mapping.command.split(' ').map(|s| s.to_string()).collect());
+                    break;
+                }
+            }
+
+            let pid = get_pid(w.id).unwrap();
+            Process {
+                command: command.unwrap_or_else(|| get_process_cmd(pid).unwrap()),
+                working_directory: get_process_cwd(pid).unwrap(),
+            }
         })
         .collect::<Vec<_>>();
 
