@@ -4,6 +4,7 @@ use directories::BaseDirs;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use shlex::split;
+use std::collections::HashSet;
 use std::{fs, io, os::unix::fs::PermissionsExt, path::Path};
 use xcb::{x, XidNew};
 
@@ -96,14 +97,16 @@ fn get_process_cwd(pid: u32) -> io::Result<String> {
 pub fn save_processes(windows: Vec<i3_tree::Window>) {
     let config = CONFIG.get().unwrap();
     let base_dirs = BaseDirs::new().expect("Failed to get base directories");
+    let mut once_mappings = HashSet::new();
     let processes = windows
         .iter()
         .filter_map(|w| {
             let mut command: Option<Vec<String>> = None;
             let mut working_directory: Option<String> = None;
             let mut matched_mapping: Option<&WindowCommandMapping> = None;
+            let mut matched_mapping_idx: Option<usize> = None;
             let mut best_score = 0;
-            for mapping in &config.window_command_mappings {
+            for (i, mapping) in config.window_command_mappings.iter().enumerate() {
                 let title_regex = &mapping
                     .title
                     .as_ref()
@@ -124,23 +127,30 @@ pub fn save_processes(windows: Vec<i3_tree::Window>) {
                 if score > best_score {
                     best_score = score;
                     matched_mapping = Some(mapping);
+                    matched_mapping_idx = Some(i);
                 }
             }
 
             if let Some(mapping) = matched_mapping {
+                if mapping.ignored.is_some_and(|ignored| ignored) {
+                    return None;
+                }
+                
+                if let Some(mapping_idx) = matched_mapping_idx {
+                    if mapping.once.is_some_and(|once| once) {
+                        if once_mappings.contains(&mapping_idx) {
+                            return None;
+                        }
+
+                        once_mappings.insert(mapping_idx);
+                    }
+                }
+
                 if let Some(command_str) = &mapping.command {
                     command = split(command_str);
-                    working_directory = Some(
-                        base_dirs
-                            .home_dir()
-                            .as_os_str()
-                            .to_os_string()
-                            .into_string()
-                            .unwrap(),
-                    );
-                } else {
-                    // no command means do not run any command for this window
-                    return None;
+                }
+                if let Some(working_directory_str) = &mapping.working_directory {
+                    working_directory = Some(working_directory_str.clone());
                 }
             }
 

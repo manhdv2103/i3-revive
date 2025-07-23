@@ -1,4 +1,5 @@
 use std::{
+    collections::HashSet,
     fs,
     io::{BufWriter, Write},
 };
@@ -6,6 +7,8 @@ use std::{
 use directories::BaseDirs;
 use regex::escape;
 use serde_json::{Map, Value};
+
+use crate::config::CONFIG;
 
 #[derive(Debug)]
 pub struct Window {
@@ -74,6 +77,7 @@ fn is_zero_rect(val: &Map<String, Value>) -> bool {
 
 // https://github.com/i3/i3/blob/2746e0319b03a8a5a02b57a69b1fb47e0a9c22f1/i3-save-tree#L105
 fn convert_to_layout(tree: &mut Value) {
+    let config = CONFIG.get().unwrap();
     let tree_obj = tree.as_object_mut().unwrap();
     let is_tree_leaf_node = is_leaf_node(tree_obj);
 
@@ -143,19 +147,35 @@ fn convert_to_layout(tree: &mut Value) {
         if let Some(window_properties) = tree_obj.get("window_properties") {
             let props_obj = window_properties.as_object().unwrap();
             let mut swallows = Map::new();
+            let mut criteria: Option<&HashSet<String>> = None;
 
             if let Some(class) = props_obj.get("class") {
-                swallows.insert(
-                    "class".to_string(),
-                    Value::String(format!("^{}$", escape(class.as_str().unwrap()).as_str())),
-                );
+                criteria = config.window_swallow_criteria.get(class.as_str().unwrap());
+
+                if criteria.is_none_or(|crit| crit.contains("class")) {
+                    swallows.insert(
+                        "class".to_string(),
+                        Value::String(format!("^{}$", escape(class.as_str().unwrap()).as_str())),
+                    );
+                }
             }
 
-            if let Some(class) = props_obj.get("instance") {
-                swallows.insert(
-                    "instance".to_string(),
-                    Value::String(format!("^{}$", escape(class.as_str().unwrap()).as_str())),
-                );
+            if let Some(instance) = props_obj.get("instance") {
+                if criteria.is_none_or(|crit| crit.contains("instance")) {
+                    swallows.insert(
+                        "instance".to_string(),
+                        Value::String(format!("^{}$", escape(instance.as_str().unwrap()).as_str())),
+                    );
+                }
+            }
+
+            if let Some(title) = props_obj.get("title") {
+                if criteria.is_some_and(|crit| crit.contains("title")) {
+                    swallows.insert(
+                        "title".to_string(),
+                        Value::String(format!("^{}$", escape(title.as_str().unwrap()).as_str())),
+                    );
+                }
             }
 
             tree_obj.insert(
