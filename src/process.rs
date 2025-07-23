@@ -182,3 +182,14 @@ pub fn save_processes(windows: Vec<i3_tree::Window>) {
     file_path.push("processes.json");
     fs::write(file_path, json).expect("Failed to write file");
 }
+
+pub fn remove_processes() {
+    let base_dirs = BaseDirs::new().expect("Failed to get base directories");
+    let mut file_path = base_dirs.data_local_dir().to_path_buf();
+    file_path.push("i3-revive");
+    file_path.push("processes.json");
+    
+    if file_path.exists() {
+        fs::remove_file(&file_path).expect("Failed to remove processes.json file");
+    }
+}

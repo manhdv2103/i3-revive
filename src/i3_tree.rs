@@ -141,7 +141,7 @@ fn convert_to_layout(tree: &mut Value) {
     }
 
     // https://github.com/i3/i3/blob/2746e0319b03a8a5a02b57a69b1fb47e0a9c22f1/i3-save-tree#L167
-    // Turn “window_properties” into “swallows” expressions, but only for leaf
+    // Turn "window_properties" into "swallows" expressions, but only for leaf
     // nodes. It only makes sense for leaf nodes to swallow anything.
     if is_tree_leaf_node {
         if let Some(window_properties) = tree_obj.get("window_properties") {
@@ -261,5 +261,16 @@ pub fn save_workspaces(mut workspaces: Vec<Value>) {
                 .expect("Failed to write to file");
             }
         });
+    }
+}
+
+pub fn remove_workspaces() {
+    let base_dirs = BaseDirs::new().expect("Failed to get base directories");
+    let mut dir = base_dirs.data_local_dir().to_path_buf();
+    dir.push("i3-revive");
+    dir.push("layouts");
+    
+    if dir.exists() {
+        fs::remove_dir_all(&dir).expect("Failed to remove layouts directory");
     }
 }

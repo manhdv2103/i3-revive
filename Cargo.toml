@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 byteorder = "1.5.0"
+chrono = "0.4.41"
 regex = "1.11.1"
 serde = {version = "1.0.215", features = ["derive"]}
 serde_json = {version = "1.0.132", features = ["preserve_order"]}
