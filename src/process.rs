@@ -5,6 +5,7 @@ use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::{fs, io, os::unix::fs::PermissionsExt, path::Path};
 use xcb::{x, XidNew};
+use shlex::split;
 
 #[derive(Serialize, Deserialize, Debug)]
 struct Process {
@@ -94,14 +95,34 @@ fn get_process_cwd(pid: u32) -> io::Result<String> {
 
 pub fn save_processes(windows: Vec<i3_tree::Window>) {
     let config = CONFIG.get().unwrap();
+    let base_dirs = BaseDirs::new().expect("Failed to get base directories");
     let processes = windows
         .iter()
         .map(|w| {
             let mut command: Option<Vec<String>> = None;
+            let mut working_directory: Option<String> = None;
             for mapping in &config.window_command_mappings {
-                let re = Regex::new(&mapping.regex).unwrap();
-                if re.is_match(&w.name) || re.is_match(&w.class) {
-                    command = Some(mapping.command.split(' ').map(|s| s.to_string()).collect());
+                let title_regex = &mapping
+                    .title
+                    .as_ref()
+                    .map(|str| Regex::new(str.as_str()).unwrap());
+                let class_regex = &mapping
+                    .class
+                    .as_ref()
+                    .map(|str| Regex::new(str.as_str()).unwrap());
+
+                if title_regex.as_ref().is_none_or(|re| re.is_match(&w.name))
+                    && class_regex.as_ref().is_none_or(|re| re.is_match(&w.class))
+                {
+                    command = split(&mapping.command);
+                    working_directory = Some(
+                        base_dirs
+                            .home_dir()
+                            .as_os_str()
+                            .to_os_string()
+                            .into_string()
+                            .unwrap(),
+                    );
                     break;
                 }
             }
@@ -109,19 +130,19 @@ pub fn save_processes(windows: Vec<i3_tree::Window>) {
             let pid = get_pid(w.id).unwrap();
             Process {
                 command: command.unwrap_or_else(|| get_process_cmd(pid).unwrap()),
-                working_directory: get_process_cwd(pid).unwrap(),
+                working_directory: working_directory
+                    .unwrap_or_else(|| get_process_cwd(pid).unwrap()),
             }
         })
         .collect::<Vec<_>>();
 
     let json = serde_json::to_string_pretty(&processes).expect("Failed to serialize");
 
-    let base_dirs = BaseDirs::new().expect("Failed to get base directories");
     let mut dir = base_dirs.data_local_dir().to_path_buf();
     dir.push("i3-revive");
     fs::create_dir_all(&dir).expect("Failed to create directory");
 
     let mut file_path = dir.clone();
-    file_path.push("processes");
+    file_path.push("processes.json");
     fs::write(file_path, json).expect("Failed to write file");
 }

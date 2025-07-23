@@ -227,7 +227,7 @@ pub fn save_workspaces(mut workspaces: Vec<Value>) {
         convert_to_layout(ws);
 
         let mut file_path = dir.clone();
-        file_path.push(format!("ws_{}", ws_name));
+        file_path.push(format!("ws_{}.json", ws_name));
         let f = fs::File::create(file_path).expect("Failed to create file");
         let mut f = BufWriter::new(f);
 
