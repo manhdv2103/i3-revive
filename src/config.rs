@@ -7,7 +7,7 @@ use std::sync::OnceLock;
 pub struct WindowCommandMapping {
     pub class: Option<String>,
     pub title: Option<String>,
-    pub command: String,
+    pub command: Option<String>,
 }
 
 #[derive(Deserialize, Debug)]

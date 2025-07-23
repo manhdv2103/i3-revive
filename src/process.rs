@@ -1,11 +1,11 @@
-use crate::config::CONFIG;
+use crate::config::{WindowCommandMapping, CONFIG};
 use crate::i3_tree;
 use directories::BaseDirs;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
+use shlex::split;
 use std::{fs, io, os::unix::fs::PermissionsExt, path::Path};
 use xcb::{x, XidNew};
-use shlex::split;
 
 #[derive(Serialize, Deserialize, Debug)]
 struct Process {
@@ -98,9 +98,11 @@ pub fn save_processes(windows: Vec<i3_tree::Window>) {
     let base_dirs = BaseDirs::new().expect("Failed to get base directories");
     let processes = windows
         .iter()
-        .map(|w| {
+        .filter_map(|w| {
             let mut command: Option<Vec<String>> = None;
             let mut working_directory: Option<String> = None;
+            let mut matched_mapping: Option<&WindowCommandMapping> = None;
+            let mut best_score = 0;
             for mapping in &config.window_command_mappings {
                 let title_regex = &mapping
                     .title
@@ -111,10 +113,23 @@ pub fn save_processes(windows: Vec<i3_tree::Window>) {
                     .as_ref()
                     .map(|str| Regex::new(str.as_str()).unwrap());
 
-                if title_regex.as_ref().is_none_or(|re| re.is_match(&w.name))
-                    && class_regex.as_ref().is_none_or(|re| re.is_match(&w.class))
-                {
-                    command = split(&mapping.command);
+                let mut score = 0;
+                if title_regex.as_ref().is_some_and(|re| re.is_match(&w.name)) {
+                    score += 2;
+                }
+                if class_regex.as_ref().is_some_and(|re| re.is_match(&w.class)) {
+                    score += 1;
+                }
+
+                if score > best_score {
+                    best_score = score;
+                    matched_mapping = Some(mapping);
+                }
+            }
+
+            if let Some(mapping) = matched_mapping {
+                if let Some(command_str) = &mapping.command {
+                    command = split(command_str);
                     working_directory = Some(
                         base_dirs
                             .home_dir()
@@ -123,16 +138,18 @@ pub fn save_processes(windows: Vec<i3_tree::Window>) {
                             .into_string()
                             .unwrap(),
                     );
-                    break;
+                } else {
+                    // no command means do not run any command for this window
+                    return None;
                 }
             }
 
             let pid = get_pid(w.id).unwrap();
-            Process {
+            Some(Process {
                 command: command.unwrap_or_else(|| get_process_cmd(pid).unwrap()),
                 working_directory: working_directory
                     .unwrap_or_else(|| get_process_cwd(pid).unwrap()),
-            }
+            })
         })
         .collect::<Vec<_>>();
 
