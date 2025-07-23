@@ -89,8 +89,16 @@ fn get_process_cmd(pid: u32) -> Result<Vec<String>, String> {
     Ok(cmd_parts)
 }
 
-fn get_process_cwd(pid: u32) -> io::Result<String> {
-    let path = fs::read_link(format!("/proc/{}/cwd", pid))?;
+fn get_process_cwd(pid: u32, is_terminal: bool) -> io::Result<String> {
+    let mut path = fs::read_link(format!("/proc/{}/cwd", pid))?;
+    if is_terminal {
+        // If the program is a terminal emulator, get the working
+        // directory from its first subprocess.
+        if let Some(first_child_pid) = fs::read_to_string(format!("/proc/{}/task/{}/children", pid, pid))?.split_whitespace().next() {
+            path = fs::read_link(format!("/proc/{}/cwd", first_child_pid))?;
+        }
+    }
+
     Ok(path.into_os_string().into_string().unwrap())
 }
 
@@ -135,7 +143,7 @@ pub fn save_processes(windows: Vec<i3_tree::Window>) {
                 if mapping.ignored.is_some_and(|ignored| ignored) {
                     return None;
                 }
-                
+
                 if let Some(mapping_idx) = matched_mapping_idx {
                     if mapping.once.is_some_and(|once| once) {
                         if once_mappings.contains(&mapping_idx) {
@@ -157,8 +165,9 @@ pub fn save_processes(windows: Vec<i3_tree::Window>) {
             let pid = get_pid(w.id).unwrap();
             Some(Process {
                 command: command.unwrap_or_else(|| get_process_cmd(pid).unwrap()),
-                working_directory: working_directory
-                    .unwrap_or_else(|| get_process_cwd(pid).unwrap()),
+                working_directory: working_directory.unwrap_or_else(|| {
+                    get_process_cwd(pid, config.terminals.contains(&w.class)).unwrap()
+                }),
             })
         })
         .collect::<Vec<_>>();

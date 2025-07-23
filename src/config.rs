@@ -19,6 +19,7 @@ pub struct Config {
     #[serde(default)]
     pub window_command_mappings: Vec<WindowCommandMapping>,
     pub window_swallow_criteria: HashMap<String, HashSet<String>>,
+    pub terminals: HashSet<String>,
 }
 
 pub static CONFIG: OnceLock<Config> = OnceLock::new();
@@ -30,10 +31,12 @@ pub fn load_config() {
             Ok(content) => serde_json::from_str(&content).unwrap_or_else(|_| Config {
                 window_command_mappings: vec![],
                 window_swallow_criteria: HashMap::new(),
+                terminals: HashSet::new(),
             }),
             Err(_) => Config {
                 window_command_mappings: vec![],
                 window_swallow_criteria: HashMap::new(),
+                terminals: HashSet::new(),
             },
         };
         CONFIG.set(config).unwrap();
@@ -42,6 +45,7 @@ pub fn load_config() {
             .set(Config {
                 window_command_mappings: vec![],
                 window_swallow_criteria: HashMap::new(),
+                terminals: HashSet::new(),
             })
             .unwrap();
     }
