@@ -2,7 +2,7 @@ use chrono::Local;
 use directories::BaseDirs;
 use i3_revive::{
     config::load_config,
-    i3_tree::{find_workspaces, get_all_windows, remove_workspaces, save_workspaces},
+    i3_tree::{find_workspaces, get_all_windows, remove_workspaces, restore_workspaces, save_workspaces},
     i3ipc::{connect_i3, get_tree},
     process::{remove_processes, save_processes},
 };
@@ -37,8 +37,7 @@ fn main() {
             save_processes(windows);
         }
         "restore" => {
-            eprintln!("TODO: restore command not implemented yet");
-            std::process::exit(1);
+            restore_workspaces();
         }
         "rm" => {
             if let Err(e) = backup_and_clear_data() {

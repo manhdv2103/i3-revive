@@ -94,7 +94,11 @@ fn get_process_cwd(pid: u32, is_terminal: bool) -> io::Result<String> {
     if is_terminal {
         // If the program is a terminal emulator, get the working
         // directory from its first subprocess.
-        if let Some(first_child_pid) = fs::read_to_string(format!("/proc/{}/task/{}/children", pid, pid))?.split_whitespace().next() {
+        if let Some(first_child_pid) =
+            fs::read_to_string(format!("/proc/{}/task/{}/children", pid, pid))?
+                .split_whitespace()
+                .next()
+        {
             path = fs::read_link(format!("/proc/{}/cwd", first_child_pid))?;
         }
     }
@@ -109,6 +113,10 @@ pub fn save_processes(windows: Vec<i3_tree::Window>) {
     let processes = windows
         .iter()
         .filter_map(|w| {
+            if w.is_placeholder {
+                return None;
+            }
+            
             let mut command: Option<Vec<String>> = None;
             let mut working_directory: Option<String> = None;
             let mut matched_mapping: Option<&WindowCommandMapping> = None;
@@ -128,7 +136,12 @@ pub fn save_processes(windows: Vec<i3_tree::Window>) {
                 if title_regex.as_ref().is_some_and(|re| re.is_match(&w.name)) {
                     score += 2;
                 }
-                if class_regex.as_ref().is_some_and(|re| re.is_match(&w.class)) {
+                if class_regex
+                    .as_ref()
+                    .zip(w.class.as_deref())
+                    .map(|(re, class)| re.is_match(class))
+                    .unwrap_or(false)
+                {
                     score += 1;
                 }
 
@@ -162,11 +175,12 @@ pub fn save_processes(windows: Vec<i3_tree::Window>) {
                 }
             }
 
+            let is_terminal = w.class.as_ref().map(|class| config.terminals.contains(class)).unwrap_or(false);
             let pid = get_pid(w.id).unwrap();
             Some(Process {
                 command: command.unwrap_or_else(|| get_process_cmd(pid).unwrap()),
                 working_directory: working_directory.unwrap_or_else(|| {
-                    get_process_cwd(pid, config.terminals.contains(&w.class)).unwrap()
+                    get_process_cwd(pid, is_terminal).unwrap()
                 }),
             })
         })
@@ -188,7 +202,7 @@ pub fn remove_processes() {
     let mut file_path = base_dirs.data_local_dir().to_path_buf();
     file_path.push("i3-revive");
     file_path.push("processes.json");
-    
+
     if file_path.exists() {
         fs::remove_file(&file_path).expect("Failed to remove processes.json file");
     }

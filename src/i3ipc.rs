@@ -173,3 +173,8 @@ pub fn get_tree(stream: &mut UnixStream) -> Result<serde_json::Value, MessageErr
     let val: serde_json::Value = stream.send_receive_i3_message(4, "")?;
     Ok(val)
 }
+
+pub fn get_workspaces(stream: &mut UnixStream) -> Result<serde_json::Value, MessageError> {
+    let val: serde_json::Value = stream.send_receive_i3_message(1, "")?;
+    Ok(val)
+}
