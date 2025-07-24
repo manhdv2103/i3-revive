@@ -4,7 +4,7 @@ use i3_revive::{
     config::load_config,
     i3_tree::{find_workspaces, get_all_windows, remove_workspaces, restore_workspaces, save_workspaces},
     i3ipc::{connect_i3, get_tree},
-    process::{remove_processes, save_processes},
+    process::{remove_processes, restore_processes, save_processes},
 };
 use std::{env, fs, io};
 
@@ -38,6 +38,7 @@ fn main() {
         }
         "restore" => {
             restore_workspaces();
+            restore_processes();
         }
         "rm" => {
             if let Err(e) = backup_and_clear_data() {

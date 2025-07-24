@@ -5,6 +5,8 @@ use regex::Regex;
 use serde::{Deserialize, Serialize};
 use shlex::split;
 use std::collections::HashSet;
+use std::os::unix::process::CommandExt;
+use std::process::{Command, Stdio};
 use std::{fs, io, os::unix::fs::PermissionsExt, path::Path};
 use xcb::{x, XidNew};
 
@@ -116,7 +118,7 @@ pub fn save_processes(windows: Vec<i3_tree::Window>) {
             if w.is_placeholder {
                 return None;
             }
-            
+
             let mut command: Option<Vec<String>> = None;
             let mut working_directory: Option<String> = None;
             let mut matched_mapping: Option<&WindowCommandMapping> = None;
@@ -175,13 +177,16 @@ pub fn save_processes(windows: Vec<i3_tree::Window>) {
                 }
             }
 
-            let is_terminal = w.class.as_ref().map(|class| config.terminals.contains(class)).unwrap_or(false);
+            let is_terminal = w
+                .class
+                .as_ref()
+                .map(|class| config.terminals.contains(class))
+                .unwrap_or(false);
             let pid = get_pid(w.id).unwrap();
             Some(Process {
                 command: command.unwrap_or_else(|| get_process_cmd(pid).unwrap()),
-                working_directory: working_directory.unwrap_or_else(|| {
-                    get_process_cwd(pid, is_terminal).unwrap()
-                }),
+                working_directory: working_directory
+                    .unwrap_or_else(|| get_process_cwd(pid, is_terminal).unwrap()),
             })
         })
         .collect::<Vec<_>>();
@@ -195,6 +200,35 @@ pub fn save_processes(windows: Vec<i3_tree::Window>) {
     let mut file_path = dir.clone();
     file_path.push("processes.json");
     fs::write(file_path, json).expect("Failed to write file");
+}
+
+pub fn restore_processes() {
+    let base_dirs = BaseDirs::new().expect("Failed to get base directories");
+    let mut file_path = base_dirs.data_local_dir().to_path_buf();
+    file_path.push("i3-revive");
+    file_path.push("processes.json");
+
+    if !file_path.exists() {
+        return;
+    }
+
+    let json_content = fs::read_to_string(&file_path).expect("Failed to read processes.json file");
+    let processes: Vec<Process> =
+        serde_json::from_str(&json_content).expect("Failed to deserialize processes.json");
+
+    for process in processes {
+        if let Some((program, args)) = process.command.split_first() {
+            Command::new(program)
+                .args(args)
+                .current_dir(&process.working_directory)
+                .process_group(0)
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .spawn()
+                .expect("Failed to spawn process");
+        }
+    }
 }
 
 pub fn remove_processes() {
