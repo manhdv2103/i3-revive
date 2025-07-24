@@ -2,8 +2,11 @@ use chrono::Local;
 use directories::BaseDirs;
 use i3_revive::{
     config::load_config,
-    i3_tree::{find_workspaces, get_all_windows, remove_workspaces, restore_workspaces, save_workspaces},
+    i3_tree::{
+        find_workspaces, get_all_windows, remove_workspaces, restore_workspaces, save_workspaces,
+    },
     i3ipc::{connect_i3, get_tree},
+    metadata::{remove_metadata, restore_metadata, save_metadata},
     process::{remove_processes, restore_processes, save_processes},
 };
 use std::{env, fs, io};
@@ -35,10 +38,13 @@ fn main() {
 
             save_workspaces(workspaces);
             save_processes(windows);
+            save_metadata(&mut stream).expect("Failed to save metadata");
         }
         "restore" => {
-            restore_workspaces();
+            let mut stream = connect_i3().expect("Failed to connect to i3");
+            restore_workspaces(&mut stream);
             restore_processes();
+            restore_metadata(&mut stream).expect("Failed to restore metadata");
         }
         "rm" => {
             if let Err(e) = backup_and_clear_data() {
@@ -89,6 +95,14 @@ fn backup_and_clear_data() -> io::Result<()> {
         fs::copy(processes_source, processes_backup)?;
     }
 
+    // Copy metadata.json file
+    let mut metadata_source = source_dir.clone();
+    metadata_source.push("metadata.json");
+    if metadata_source.exists() {
+        let metadata_backup = backup_dir.join("metadata. json");
+        fs::copy(metadata_source, metadata_backup)?;
+    }
+
     // Clean up old backups - keep only the 100 most recent
     let mut entries = Vec::new();
 
@@ -119,6 +133,7 @@ fn backup_and_clear_data() -> io::Result<()> {
     // Remove existing data
     remove_workspaces();
     remove_processes();
+    remove_metadata().expect("Failed to remove metadata");
 
     Ok(())
 }

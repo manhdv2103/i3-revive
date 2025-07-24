@@ -2,7 +2,7 @@ use std::{
     collections::HashSet,
     error::Error,
     fs,
-    io::{BufWriter, Write}
+    io::{BufWriter, Write}, os::unix::net::UnixStream
 };
 
 use directories::BaseDirs;
@@ -12,7 +12,7 @@ use xcb::{x, XidNew};
 
 use crate::{
     config::CONFIG,
-    i3ipc::{connect_i3, get_tree, get_workspaces, run_command},
+    i3ipc::{get_tree, get_workspaces, run_command},
 };
 
 #[derive(Debug)]
@@ -117,7 +117,7 @@ pub fn save_workspaces(mut workspaces: Vec<Value>) {
     }
 }
 
-pub fn restore_workspaces() {
+pub fn restore_workspaces(stream: &mut UnixStream) {
     let base_dirs = BaseDirs::new().expect("Failed to get base directories");
     let mut dir = base_dirs.data_local_dir().to_path_buf();
     dir.push("i3-revive");
@@ -128,13 +128,12 @@ pub fn restore_workspaces() {
         std::process::exit(1);
     }
 
-    let mut stream = connect_i3().expect("Failed to connect to i3");
-    let root = get_tree(&mut stream).expect("Failed to get tree");
+    let root = get_tree(stream).expect("Failed to get tree");
     let (conn, _) = xcb::Connection::connect(None).expect("Failed to connect to X server");
 
     let tree_workspaces = find_workspaces(root);
     let windows = get_all_windows(&tree_workspaces);
-    let workspaces = get_workspaces(&mut stream).expect("Failed to get workspaces");
+    let workspaces = get_workspaces(stream).expect("Failed to get workspaces");
     let focused_workspace_name = workspaces
         .as_array()
         .unwrap()
@@ -177,10 +176,10 @@ pub fn restore_workspaces() {
                 let ws_name = &caps[1];
 
                 if !first_entry || focused_workspace_name.is_none_or(|name| name != ws_name) {
-                    run_command(&mut stream, format!("workspace {}", ws_name).as_str())?;
+                    run_command(stream, format!("workspace {}", ws_name).as_str())?;
                 }
 
-                run_command(&mut stream, format!("append_layout {}", path).as_str())?;
+                run_command(stream, format!("append_layout {}", path).as_str())?;
 
                 first_entry = false;
             }

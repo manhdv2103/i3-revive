@@ -5,6 +5,7 @@ use regex::Regex;
 use serde::{Deserialize, Serialize};
 use shlex::split;
 use std::collections::HashSet;
+use std::error::Error;
 use std::os::unix::process::CommandExt;
 use std::process::{Command, Stdio};
 use std::{fs, io, os::unix::fs::PermissionsExt, path::Path};
@@ -16,7 +17,7 @@ struct Process {
     working_directory: String,
 }
 
-fn get_pid(window: u32) -> xcb::Result<u32> {
+fn get_pid(window: u32) -> Result<u32, Box<dyn Error>> {
     let (conn, _) = xcb::Connection::connect(None)?;
 
     let wm_pid = conn.send_request(&x::InternAtom {
@@ -35,9 +36,12 @@ fn get_pid(window: u32) -> xcb::Result<u32> {
         long_length: 1024,
     });
     let reply = conn.wait_for_reply(cookie)?;
-    let pid = reply.value::<u32>()[0];
-
-    Ok(pid)
+    let value = reply.value::<u32>();
+    if value.is_empty() {
+        Err("Window has no pid".into())
+    } else {
+        Ok(value[0])
+    }
 }
 
 // https://docs.rs/is_executable/latest/src/is_executable/lib.rs.html#38
@@ -119,6 +123,13 @@ pub fn save_processes(windows: Vec<i3_tree::Window>) {
                 return None;
             }
 
+            let maybe_pid = get_pid(w.id);
+            if let Err(err) = maybe_pid {
+                eprintln!("Warning: Cannot found pid of window {}: {:?}", w.id, err);
+                return None;
+            }
+            let pid = maybe_pid.unwrap();
+
             let mut command: Option<Vec<String>> = None;
             let mut working_directory: Option<String> = None;
             let mut matched_mapping: Option<&WindowCommandMapping> = None;
@@ -182,7 +193,6 @@ pub fn save_processes(windows: Vec<i3_tree::Window>) {
                 .as_ref()
                 .map(|class| config.terminals.contains(class))
                 .unwrap_or(false);
-            let pid = get_pid(w.id).unwrap();
             Some(Process {
                 command: command.unwrap_or_else(|| get_process_cmd(pid).unwrap()),
                 working_directory: working_directory
@@ -209,7 +219,8 @@ pub fn restore_processes() {
     file_path.push("processes.json");
 
     if !file_path.exists() {
-        return;
+        eprintln!("process file is missing");
+        std::process::exit(1);
     }
 
     let json_content = fs::read_to_string(&file_path).expect("Failed to read processes.json file");
