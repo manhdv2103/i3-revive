@@ -120,8 +120,8 @@ fn backup_and_clear_data() -> io::Result<()> {
         b_time.cmp(&a_time)
     });
 
-    // Remove old backups beyond the 50 limit
-    for old_backup in entries.iter().skip(50) {
+    // Remove old backups beyond the limit
+    for old_backup in entries.iter().skip(1000) {
         if let Err(e) = fs::remove_dir_all(old_backup) {
             eprintln!(
                 "Warning: Failed to remove old backup {:?}: {}",
