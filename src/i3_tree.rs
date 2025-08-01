@@ -2,7 +2,8 @@ use std::{
     collections::HashSet,
     error::Error,
     fs,
-    io::{BufWriter, Write}, os::unix::net::UnixStream
+    io::{BufWriter, Write},
+    os::unix::net::UnixStream,
 };
 
 use directories::BaseDirs;
@@ -149,11 +150,13 @@ pub fn restore_workspaces(stream: &mut UnixStream) {
         if window.is_placeholder {
             conn.send_and_check_request(&x::KillClient {
                 resource: window.id,
-            }).unwrap();
+            })
+            .unwrap();
         } else {
             conn.send_and_check_request(&x::UnmapWindow {
                 window: unsafe { XidNew::new(window.id) },
-            }).unwrap();
+            })
+            .unwrap();
         };
     }
 
@@ -198,7 +201,8 @@ pub fn restore_workspaces(stream: &mut UnixStream) {
         if !window.is_placeholder {
             conn.send_and_check_request(&x::MapWindow {
                 window: unsafe { XidNew::new(window.id) },
-            }).unwrap();
+            })
+            .unwrap();
         }
     }
 
@@ -223,6 +227,7 @@ fn convert_to_layout(tree: &mut Value) {
     let config = CONFIG.get().unwrap();
     let tree_obj = tree.as_object_mut().unwrap();
     let is_tree_leaf_node = is_leaf_node(tree_obj);
+    let leaf_node_id = tree_obj.get("window").and_then(|win| win.as_u64());
 
     // layout is not relevant for a leaf container
     if is_tree_leaf_node {
@@ -291,16 +296,20 @@ fn convert_to_layout(tree: &mut Value) {
             let props_obj = window_properties.as_object().unwrap();
             let mut swallows = Map::new();
             let mut criteria: Option<&HashSet<String>> = None;
+            let mut is_terminal = false;
 
             if let Some(class) = props_obj.get("class") {
-                criteria = config.window_swallow_criteria.get(class.as_str().unwrap());
+                let class = class.as_str().unwrap();
+                criteria = config.window_swallow_criteria.get(class);
 
                 if criteria.is_none_or(|crit| crit.contains("class")) {
                     swallows.insert(
                         "class".to_string(),
-                        Value::String(format!("^{}$", escape(class.as_str().unwrap()).as_str())),
+                        Value::String(format!("^{}$", escape(class).as_str())),
                     );
                 }
+
+                is_terminal = config.terminal_revive_commands.contains_key(class);
             }
 
             if let Some(instance) = props_obj.get("instance") {
@@ -313,10 +322,16 @@ fn convert_to_layout(tree: &mut Value) {
             }
 
             if let Some(title) = props_obj.get("title") {
+                let title = title.as_str().unwrap();
                 if criteria.is_some_and(|crit| crit.contains("title")) {
                     swallows.insert(
                         "title".to_string(),
-                        Value::String(format!("^{}$", escape(title.as_str().unwrap()).as_str())),
+                        Value::String(format!("^{}$", escape(title).as_str())),
+                    );
+                } else if is_terminal {
+                    swallows.insert(
+                        "title".to_string(),
+                        Value::String(format!("Terminal-Window-{}", leaf_node_id.unwrap(),)),
                     );
                 }
             }

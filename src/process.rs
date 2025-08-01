@@ -3,8 +3,9 @@ use crate::i3_tree;
 use directories::BaseDirs;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
-use shlex::split;
+use shlex::{split, try_join};
 use std::collections::HashSet;
+use std::env;
 use std::error::Error;
 use std::os::unix::process::CommandExt;
 use std::process::{Command, Stdio};
@@ -93,6 +94,86 @@ fn get_process_cmd(pid: u32) -> Result<Vec<String>, String> {
     cmd_parts.insert(0, executable);
 
     Ok(cmd_parts)
+}
+
+fn get_terminal_process_cmd(pid: u32, window_id: u32, terminal_command: String) -> Result<Vec<String>, String> {
+    let config = CONFIG.get().unwrap();
+    let default_shell = env::var("SHELL").expect("No default shell avaiable");
+    let shell_pid = fs::read_to_string(format!("/proc/{}/task/{}/children", pid, pid))
+        .map_err(|err| err.to_string())?
+        .split_whitespace()
+        .next()
+        .unwrap()
+        .to_owned();
+
+    let raw_shell_cmd = match fs::read_to_string(format!("/proc/{}/cmdline", shell_pid)) {
+        Ok(cmd) => cmd,
+        Err(err) => return Err(err.to_string()),
+    };
+    let shell_cmd_parts = raw_shell_cmd
+        .trim_matches('\0')
+        .split('\0')
+        .map(|s| s.to_string())
+        .collect::<Vec<_>>();
+
+    if shell_cmd_parts.is_empty() {
+        return Err("Shell command not found".into());
+    }
+
+    let get_process_cmd_parts = || {
+        let shell_name = shell_cmd_parts.first().unwrap().rsplit_once('/').unwrap().1;
+        if shell_name != "bash" && shell_name != "zsh" && shell_name != "fish" && shell_name != "sh"
+        {
+            eprintln!(
+                "Warning: unknown shell or not a shell: {}, fallback to normal revival",
+                shell_name
+            );
+            return Ok(None);
+        }
+
+        if shell_cmd_parts.len() > 1 {
+            eprintln!("Warning: shell has additional arguments, fallback to normal revival");
+            return Ok(None);
+        }
+
+        let fg_process_pid = match fs::read_to_string(format!("/proc/{}/stat", shell_pid)) {
+            Ok(stat) => stat
+                .split_whitespace()
+                .nth(7)
+                .unwrap()
+                .parse::<u32>()
+                .unwrap(),
+            Err(err) => return Err(err.to_string()),
+        };
+
+        // no foreground process is running
+        if fg_process_pid == shell_pid.parse::<u32>().unwrap() {
+            return Ok(None);
+        };
+
+        let fg_process_cmd = get_process_cmd(fg_process_pid)?;
+        if fg_process_cmd.first().map(|proc| config.terminal_allow_revive_processes.contains(proc)).unwrap_or(true) {
+            return Ok(Some(fg_process_cmd));
+        }
+
+        Ok(None)
+    };
+    let process_cmd = format!(
+        // The 0.1 sleep is to let the title displayed long enough for the swallowing windows to detect
+        "echo -ne \"\\033]0;Terminal-Window-{}\\007\"; sleep 0.1; {}; {}",
+        window_id,
+        get_process_cmd_parts()?
+            .map(|parts| { try_join(parts.iter().map(|s| s.as_str())).unwrap() })
+            .unwrap_or("true".to_string()),
+        default_shell.clone()
+    );
+    let cmd_parts = [&default_shell, "-c", process_cmd.as_str()];
+
+    let terminal_cmd_parts =
+        split(&terminal_command.replace("{cmd}", &try_join(cmd_parts).unwrap()))
+            .unwrap_or_else(|| panic!("Invalid terminal command: {}", terminal_command));
+
+    Ok(terminal_cmd_parts)
 }
 
 fn get_process_cwd(pid: u32, is_terminal: bool) -> io::Result<String> {
@@ -188,15 +269,19 @@ pub fn save_processes(windows: Vec<i3_tree::Window>) {
                 }
             }
 
-            let is_terminal = w
+            let terminal_command = w
                 .class
                 .as_ref()
-                .map(|class| config.terminals.contains(class))
-                .unwrap_or(false);
+                .and_then(|class| config.terminal_revive_commands.get(class));
+
             Some(Process {
-                command: command.unwrap_or_else(|| get_process_cmd(pid).unwrap()),
+                command: command.unwrap_or_else(|| {
+                    terminal_command
+                        .map(|cmd| get_terminal_process_cmd(pid, w.id, cmd.to_string()).unwrap())
+                        .unwrap_or_else(|| get_process_cmd(pid).unwrap())
+                }),
                 working_directory: working_directory
-                    .unwrap_or_else(|| get_process_cwd(pid, is_terminal).unwrap()),
+                    .unwrap_or_else(|| get_process_cwd(pid, terminal_command.is_some()).unwrap()),
             })
         })
         .collect::<Vec<_>>();
