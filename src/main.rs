@@ -1,4 +1,4 @@
-use chrono::Local;
+use chrono::{DateTime, Local};
 use directories::BaseDirs;
 use i3_revive::{
     config::load_config,
@@ -99,7 +99,7 @@ fn backup_and_clear_data() -> io::Result<()> {
     let mut metadata_source = source_dir.clone();
     metadata_source.push("metadata.json");
     if metadata_source.exists() {
-        let metadata_backup = backup_dir.join("metadata. json");
+        let metadata_backup = backup_dir.join("metadata.json");
         fs::copy(metadata_source, metadata_backup)?;
     }
 
@@ -127,6 +127,33 @@ fn backup_and_clear_data() -> io::Result<()> {
                 "Warning: Failed to remove old backup {:?}: {}",
                 old_backup, e
             );
+        }
+    }
+
+    // Clean up old log files
+    let mut log_dir = base_dirs.state_dir().unwrap().to_path_buf();
+    log_dir.push("i3-revive");
+    let thirty_days = chrono::Duration::days(30);
+    for log_type in ["stdout", "stderr"].iter() {
+        let mut log_type_dir = log_dir.clone();
+        log_type_dir.push(log_type);
+        if !log_type_dir.exists() {
+            continue;
+        }
+        for entry in fs::read_dir(log_type_dir)? {
+            let entry = entry?;
+            let path = entry.path();
+            if path.is_file() {
+                let metadata = fs::metadata(&path)?;
+                if let Ok(modified) = metadata.modified() {
+                    let modified_datetime: DateTime<Local> = modified.into();
+                    if Local::now().signed_duration_since(modified_datetime) > thirty_days {
+                        if let Err(e) = fs::remove_file(&path) {
+                            eprintln!("Warning: Failed to remove old log file {:?}: {}", path, e);
+                        }
+                    }
+                }
+            }
         }
     }
 

@@ -1,11 +1,13 @@
 use crate::config::{WindowCommandMapping, CONFIG};
 use crate::i3_tree;
+use chrono::Local;
 use directories::BaseDirs;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use shlex::{split, try_join};
 use std::collections::HashSet;
 use std::error::Error;
+use std::fs::File;
 use std::os::unix::process::CommandExt;
 use std::process::{Command, Stdio};
 use std::{fs, io, os::unix::fs::PermissionsExt, path::Path};
@@ -362,13 +364,30 @@ pub fn restore_processes() {
 
     for process in processes {
         if let Some((program, args)) = process.command.split_first() {
+            let process_name = program.split('/').next_back().unwrap();
+            let timestamp = Local::now().format("%Y-%m-%d-%H-%M-%S-%f");
+
+            let mut stdout_log_path = base_dirs.state_dir().unwrap().to_path_buf();
+            stdout_log_path.push("i3-revive");
+            stdout_log_path.push("stdout");
+            stdout_log_path.push(format!("{}-{}.log", process_name, timestamp));
+            std::fs::create_dir_all(stdout_log_path.parent().unwrap()).unwrap();
+            let stdout_log = File::create(stdout_log_path).expect("Failed to create stdout log file");
+
+            let mut stderr_log_path = base_dirs.state_dir().unwrap().to_path_buf();
+            stderr_log_path.push("i3-revive");
+            stderr_log_path.push("stderr");
+            stderr_log_path.push(format!("{}-{}.log", process_name, timestamp));
+            std::fs::create_dir_all(stderr_log_path.parent().unwrap()).unwrap();
+            let stderr_log = File::create(stderr_log_path).expect("Failed to create stderr log file");
+
             Command::new(program)
                 .args(args)
                 .current_dir(&process.working_directory)
                 .process_group(0)
                 .stdin(Stdio::null())
-                .stdout(Stdio::null())
-                .stderr(Stdio::null())
+                .stdout(Stdio::from(stdout_log))
+                .stderr(Stdio::from(stderr_log))
                 .spawn()
                 .expect("Failed to spawn process");
         }
