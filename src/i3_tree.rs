@@ -331,7 +331,7 @@ fn convert_to_layout(tree: &mut Value) {
                 } else if is_terminal {
                     swallows.insert(
                         "title".to_string(),
-                        Value::String(format!("Terminal-Window-{}", leaf_node_id.unwrap(),)),
+                        Value::String(format!("Revive-Terminal-Window-{}", leaf_node_id.unwrap(),)),
                     );
                 }
             }

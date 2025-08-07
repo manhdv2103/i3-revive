@@ -5,7 +5,6 @@ use regex::Regex;
 use serde::{Deserialize, Serialize};
 use shlex::{split, try_join};
 use std::collections::HashSet;
-use std::env;
 use std::error::Error;
 use std::os::unix::process::CommandExt;
 use std::process::{Command, Stdio};
@@ -96,9 +95,12 @@ fn get_process_cmd(pid: u32) -> Result<Vec<String>, String> {
     Ok(cmd_parts)
 }
 
-fn get_terminal_process_cmd(pid: u32, window_id: u32, terminal_command: String) -> Result<Vec<String>, String> {
+fn get_terminal_process_cmd(
+    pid: u32,
+    window_id: u32,
+    terminal_command: String,
+) -> Result<Vec<String>, String> {
     let config = CONFIG.get().unwrap();
-    let default_shell = env::var("SHELL").expect("No default shell avaiable");
     let shell_pid = fs::read_to_string(format!("/proc/{}/task/{}/children", pid, pid))
         .map_err(|err| err.to_string())?
         .split_whitespace()
@@ -120,8 +122,12 @@ fn get_terminal_process_cmd(pid: u32, window_id: u32, terminal_command: String) 
         return Err("Shell command not found".into());
     }
 
+    let shell_cmd = shell_cmd_parts.first().unwrap();
+    let shell_name = shell_cmd
+        .rsplit_once('/')
+        .map(|parts| parts.1)
+        .unwrap_or(shell_cmd);
     let get_process_cmd_parts = || {
-        let shell_name = shell_cmd_parts.first().unwrap().rsplit_once('/').unwrap().1;
         if shell_name != "bash" && shell_name != "zsh" && shell_name != "fish" && shell_name != "sh"
         {
             eprintln!(
@@ -131,19 +137,48 @@ fn get_terminal_process_cmd(pid: u32, window_id: u32, terminal_command: String) 
             return Ok(None);
         }
 
-        if shell_cmd_parts.len() > 1 {
+        let is_revived_shell = shell_cmd_parts.get(1).is_some_and(|f| f == "-c")
+            && shell_cmd_parts
+                .get(2)
+                .is_some_and(|a| a.contains("Revive-Terminal-Window-"));
+        if shell_cmd_parts.len() > 1 && !is_revived_shell {
             eprintln!("Warning: shell has additional arguments, fallback to normal revival");
             return Ok(None);
         }
 
-        let fg_process_pid = match fs::read_to_string(format!("/proc/{}/stat", shell_pid)) {
-            Ok(stat) => stat
-                .split_whitespace()
-                .nth(7)
-                .unwrap()
-                .parse::<u32>()
-                .unwrap(),
-            Err(err) => return Err(err.to_string()),
+        let window_id_re = Regex::new("Revive-Terminal-Window-(\\d+)").unwrap();
+        let revived_shell_window_id = if is_revived_shell {
+            &window_id_re
+                .captures(shell_cmd_parts.get(2).unwrap())
+                .unwrap()[1]
+        } else {
+            ""
+        };
+
+        let fg_process_pid = if is_revived_shell
+            && !Path::new(&format!("/tmp/i3-revive/{}", revived_shell_window_id)).exists()
+        {
+            // the "else" method of getting fd process id doesn't work for process that runs before the interactive shell
+            // so we have to base on a flag (set below) to get the correct process id using a different method
+            match fs::read_to_string(format!("/proc/{}/task/{}/children", shell_pid, shell_pid)) {
+                Ok(children) => children
+                    .split_whitespace()
+                    .next()
+                    .unwrap()
+                    .parse::<u32>()
+                    .unwrap(),
+                Err(err) => return Err(err.to_string()),
+            }
+        } else {
+            match fs::read_to_string(format!("/proc/{}/stat", shell_pid)) {
+                Ok(stat) => stat[(stat.rfind(')').unwrap() + 1)..]
+                    .split_whitespace()
+                    .nth(5)
+                    .unwrap()
+                    .parse::<u32>()
+                    .unwrap(),
+                Err(err) => return Err(err.to_string()),
+            }
         };
 
         // no foreground process is running
@@ -152,22 +187,35 @@ fn get_terminal_process_cmd(pid: u32, window_id: u32, terminal_command: String) 
         };
 
         let fg_process_cmd = get_process_cmd(fg_process_pid)?;
-        if fg_process_cmd.first().map(|proc| config.terminal_allow_revive_processes.contains(proc)).unwrap_or(true) {
+        if fg_process_cmd
+            .first()
+            .map(|proc| config.terminal_allow_revive_processes.contains(proc))
+            .unwrap_or(true)
+        {
             return Ok(Some(fg_process_cmd));
         }
 
         Ok(None)
     };
+    // running process cmd inside an interactive shell let it to be run like if we run it manually
     let process_cmd = format!(
-        // The 0.1 sleep is to let the title displayed long enough for the swallowing windows to detect
-        "echo -ne \"\\033]0;Terminal-Window-{}\\007\"; sleep 0.1; {}; {}",
-        window_id,
+        "{}; mkdir /tmp/i3-revive > /dev/null; touch /tmp/i3-revive/{} > /dev/null",
         get_process_cmd_parts()?
             .map(|parts| { try_join(parts.iter().map(|s| s.as_str())).unwrap() })
             .unwrap_or("true".to_string()),
-        default_shell.clone()
+        window_id
     );
-    let cmd_parts = [&default_shell, "-c", process_cmd.as_str()];
+    let interactive_cmd_parts = [shell_cmd, "-i", "-c", process_cmd.as_str()];
+
+    // the title echo should be run on non-interactive shell, as the shell can mess with the window title in interactive mode
+    // the 0.5s sleep helps the title be displayed long enough to be detected by the swallow window
+    let process_with_title_cmd = format!(
+        "echo -ne \"\\033]0;Revive-Terminal-Window-{}\\007\"; sleep 0.5; {}; exec {}",
+        window_id,
+        &try_join(interactive_cmd_parts).unwrap(),
+        shell_cmd
+    );
+    let cmd_parts = [shell_cmd, "-c", process_with_title_cmd.as_str()];
 
     let terminal_cmd_parts =
         split(&terminal_command.replace("{cmd}", &try_join(cmd_parts).unwrap()))
