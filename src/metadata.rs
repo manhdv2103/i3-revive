@@ -6,7 +6,10 @@ use std::os::unix::net::UnixStream;
 use directories::BaseDirs;
 use serde_json::{json, Value};
 
-use crate::i3ipc::{get_workspaces, run_command};
+use crate::i3_tree::{find_workspaces, get_all_windows};
+use crate::i3ipc::{
+    connect_i3, get_tree, get_workspaces, run_command, subscribe_window_event, WindowChange,
+};
 
 fn get_metadata_path() -> io::Result<std::path::PathBuf> {
     let base_dirs = BaseDirs::new().expect("Failed to get base directories");
@@ -63,12 +66,36 @@ pub fn restore_metadata(stream: &mut UnixStream) -> io::Result<()> {
         std::process::exit(1);
     }
 
+    let root = get_tree(stream).expect("Failed to get tree");
+    let tree_workspaces = find_workspaces(root);
+    let windows = get_all_windows(&tree_workspaces);
+    if windows.iter().any(|win| win.is_placeholder) {
+        let mut event_stream = connect_i3().expect("Failed to connect to i3");
+        let event_it = subscribe_window_event(&mut event_stream).unwrap().unwrap();
+        for window_info in event_it.flatten() {
+            if window_info.change == WindowChange::New || window_info.change == WindowChange::Close {
+                let root = get_tree(stream).expect("Failed to get tree");
+                let tree_workspaces = find_workspaces(root);
+                let windows = get_all_windows(&tree_workspaces);
+
+                // no placeholders means all windows are revived, we're now safe to revive visible workspaces
+                if windows.iter().all(|win| !win.is_placeholder) {
+                    break;
+                }
+            }
+        }
+    }
+
     let workspaces = get_workspaces(stream).expect("Failed to get workspaces");
     let json_content = fs::read_to_string(&path).expect("Failed to read metadata.json file");
     let metadata: Value =
         serde_json::from_str(&json_content).expect("Failed to deserialize metadata.json");
 
-    let restoring_workspaces = metadata.get("visible_workspaces").unwrap().as_array().unwrap();
+    let restoring_workspaces = metadata
+        .get("visible_workspaces")
+        .unwrap()
+        .as_array()
+        .unwrap();
     let focused_workspace_name = workspaces
         .as_array()
         .unwrap()
@@ -87,7 +114,7 @@ pub fn restore_metadata(stream: &mut UnixStream) -> io::Result<()> {
         if !first_ws || focused_workspace_name.is_none_or(|name| name != ws_name) {
             run_command(stream, format!("workspace {}", ws_name).as_str()).unwrap();
         }
-        
+
         first_ws = false;
     }
 
