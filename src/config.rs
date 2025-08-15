@@ -17,7 +17,6 @@ pub struct WindowCommandMapping {
 #[derive(Deserialize, Debug)]
 pub struct Config {
     #[serde(default)]
-    // TODO: allow to pass in command args to command mapping
     pub window_command_mappings: Vec<WindowCommandMapping>,
     pub window_swallow_criteria: HashMap<String, HashSet<String>>,
     pub terminal_allow_revive_processes: HashSet<String>,
@@ -34,7 +33,7 @@ pub fn load_config() {
         terminal_allow_revive_processes: HashSet::new(),
         terminal_revive_commands: HashMap::new(),
     };
-    
+
     if let Some(base_dirs) = BaseDirs::new() {
         let config_path = base_dirs.config_dir().join("i3-revive/config.json");
         let config = match fs::read_to_string(config_path) {

@@ -312,7 +312,21 @@ pub fn save_processes(windows: Vec<i3_tree::Window>) {
                 }
 
                 if let Some(command_str) = &mapping.command {
-                    command = split(command_str);
+                    let re = Regex::new(r"\{(\d+)\}").unwrap();
+                    let interpolated_command = if re.is_match(command_str) {
+                        get_process_cmd(pid).ok().map(|original_cmd_parts| {
+                            re.replace_all(command_str, |caps: &regex::Captures| {
+                                let index: usize = caps[1].parse().unwrap();
+                                original_cmd_parts
+                                    .get(index)
+                                    .map_or("".to_string(), |s| shlex::try_quote(s).unwrap().to_string())
+                            })
+                            .into_owned()
+                        })
+                    } else {
+                        None
+                    };
+                    command = split(interpolated_command.as_deref().unwrap_or(command_str));
                 }
                 if let Some(working_directory_str) = &mapping.working_directory {
                     working_directory = Some(working_directory_str.clone());
