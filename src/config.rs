@@ -15,12 +15,20 @@ pub struct WindowCommandMapping {
 }
 
 #[derive(Deserialize, Debug)]
+pub struct TerminalCommandMapping {
+    pub name: Option<String>,
+    pub args: Option<String>,
+    pub command: Option<String>,
+}
+
+#[derive(Deserialize, Debug)]
 pub struct Config {
     #[serde(default)]
     pub window_command_mappings: Vec<WindowCommandMapping>,
+    #[serde(default)]
+    pub terminal_command_mappings: Vec<TerminalCommandMapping>,
     pub window_swallow_criteria: HashMap<String, HashSet<String>>,
     pub terminal_allow_revive_processes: HashSet<String>,
-    // TODO: allow to pass in terminal args to the revive command
     pub terminal_revive_commands: HashMap<String, String>,
 }
 
@@ -29,6 +37,7 @@ pub static CONFIG: OnceLock<Config> = OnceLock::new();
 pub fn load_config() {
     let default_config = Config {
         window_command_mappings: vec![],
+        terminal_command_mappings: vec![],
         window_swallow_criteria: HashMap::new(),
         terminal_allow_revive_processes: HashSet::new(),
         terminal_revive_commands: HashMap::new(),

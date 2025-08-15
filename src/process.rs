@@ -1,4 +1,4 @@
-use crate::config::{WindowCommandMapping, CONFIG};
+use crate::config::{TerminalCommandMapping, WindowCommandMapping, CONFIG};
 use crate::i3_tree;
 use chrono::Local;
 use directories::BaseDirs;
@@ -188,12 +188,50 @@ fn get_terminal_process_cmd(
             return Ok(None);
         };
 
-        let fg_process_cmd = get_process_cmd(fg_process_pid)?;
+        let mut fg_process_cmd = get_process_cmd(fg_process_pid)?;
         if fg_process_cmd
             .first()
             .map(|proc| config.terminal_allow_revive_processes.contains(proc))
             .unwrap_or(true)
         {
+            let (program, args) = fg_process_cmd.split_first().unwrap();
+            let args_str = try_join(args.iter().map(|a| a.as_str())).unwrap();
+
+            let mut best_score = 0;
+            let mut matched_mapping: Option<&TerminalCommandMapping> = None;
+
+            for mapping in &config.terminal_command_mappings {
+                let mut current_score = 0;
+                if let Some(re_str) = &mapping.name {
+                    if Regex::new(re_str).unwrap().is_match(program) {
+                        current_score += 2;
+                    }
+                }
+                if let Some(re_str) = &mapping.args {
+                    if Regex::new(re_str).unwrap().is_match(&args_str) {
+                        current_score += 1;
+                    }
+                }
+
+                if current_score > best_score {
+                    best_score = current_score;
+                    matched_mapping = Some(mapping);
+                }
+            }
+
+            if let Some(mapping) = matched_mapping {
+                if let Some(command_str) = &mapping.command {
+                    let re = Regex::new(r"\{(\d+)\}").unwrap();
+                    let interpolated_command = re.replace_all(command_str, |caps: &regex::Captures| {
+                        let index: usize = caps[1].parse().unwrap();
+                        fg_process_cmd
+                            .get(index)
+                            .map_or("".to_string(), |s| shlex::try_quote(s).unwrap().to_string())
+                    });
+                    fg_process_cmd = split(&interpolated_command).unwrap();
+                }
+            }
+
             return Ok(Some(fg_process_cmd));
         }
 
