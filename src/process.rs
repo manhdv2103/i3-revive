@@ -201,20 +201,24 @@ fn get_terminal_process_cmd(
             let mut matched_mapping: Option<&TerminalCommandMapping> = None;
 
             for mapping in &config.terminal_command_mappings {
-                let mut current_score = 0;
+                let mut score = 0;
                 if let Some(re_str) = &mapping.name {
                     if Regex::new(re_str).unwrap().is_match(program) {
-                        current_score += 2;
+                        score += 2;
+                    } else {
+                        continue;
                     }
                 }
                 if let Some(re_str) = &mapping.args {
                     if Regex::new(re_str).unwrap().is_match(&args_str) {
-                        current_score += 1;
+                        score += 1;
+                    } else {
+                        continue;
                     }
                 }
 
-                if current_score > best_score {
-                    best_score = current_score;
+                if score > best_score {
+                    best_score = score;
                     matched_mapping = Some(mapping);
                 }
             }
@@ -315,16 +319,19 @@ pub fn save_processes(windows: Vec<i3_tree::Window>) {
                     .map(|str| Regex::new(str.as_str()).unwrap());
 
                 let mut score = 0;
-                if title_regex.as_ref().is_some_and(|re| re.is_match(&w.name)) {
-                    score += 2;
+                if let Some(re) = title_regex.as_ref() {
+                    if re.is_match(&w.name) {
+                        score += 2;
+                    } else {
+                        continue;
+                    }
                 }
-                if class_regex
-                    .as_ref()
-                    .zip(w.class.as_deref())
-                    .map(|(re, class)| re.is_match(class))
-                    .unwrap_or(false)
-                {
-                    score += 1;
+                if let Some(re) = class_regex.as_ref() {
+                    if w.class.as_deref().map(|class| re.is_match(class)).unwrap_or(false) {
+                        score += 1;
+                    } else {
+                        continue;
+                    }
                 }
 
                 if score > best_score {
