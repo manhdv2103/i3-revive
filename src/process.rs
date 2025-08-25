@@ -296,6 +296,7 @@ pub fn save_processes(windows: Vec<i3_tree::Window>) {
     let config = CONFIG.get().unwrap();
     let base_dirs = BaseDirs::new().expect("Failed to get base directories");
     let mut once_mappings = HashSet::new();
+    let mut processed_pids = HashSet::new();
     let processes = windows
         .iter()
         .filter_map(|w| {
@@ -309,6 +310,10 @@ pub fn save_processes(windows: Vec<i3_tree::Window>) {
                 return None;
             }
             let pid = maybe_pid.unwrap();
+
+            if !processed_pids.insert(pid) {
+                return None;
+            }
 
             let mut command: Option<Vec<String>> = None;
             let mut working_directory: Option<String> = None;
