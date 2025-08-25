@@ -188,7 +188,14 @@ fn get_terminal_process_cmd(
             return Ok(None);
         };
 
-        let mut fg_process_cmd = get_process_cmd(fg_process_pid)?;
+        let mut fg_process_cmd = match get_process_cmd(fg_process_pid) {
+            Ok(cmd) => cmd,
+            Err(e) => {
+                eprintln!("Warning: cannot get process command of {} from terminal with pid of {}: {}", fg_process_pid, pid, e);
+                return Ok(None);
+            }
+        };
+
         if fg_process_cmd
             .first()
             .map(|proc| config.terminal_allow_revive_processes.contains(proc))
