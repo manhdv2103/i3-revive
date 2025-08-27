@@ -148,39 +148,14 @@ fn get_terminal_process_cmd(
             return Ok(None);
         }
 
-        let window_id_re = Regex::new("Revive-Terminal-Window-(\\d+)").unwrap();
-        let revived_shell_window_id = if is_revived_shell {
-            &window_id_re
-                .captures(shell_cmd_parts.get(2).unwrap())
-                .unwrap()[1]
-        } else {
-            ""
-        };
-
-        let fg_process_pid = if is_revived_shell
-            && !Path::new(&format!("/tmp/i3-revive/{}", revived_shell_window_id)).exists()
-        {
-            // the "else" method of getting fd process id doesn't work for process that runs before the interactive shell
-            // so we have to base on a flag (set below) to get the correct process id using a different method
-            match fs::read_to_string(format!("/proc/{}/task/{}/children", shell_pid, shell_pid)) {
-                Ok(children) => children
-                    .split_whitespace()
-                    .next()
-                    .unwrap()
-                    .parse::<u32>()
-                    .unwrap(),
-                Err(err) => return Err(err.to_string()),
-            }
-        } else {
-            match fs::read_to_string(format!("/proc/{}/stat", shell_pid)) {
-                Ok(stat) => stat[(stat.rfind(')').unwrap() + 1)..]
-                    .split_whitespace()
-                    .nth(5)
-                    .unwrap()
-                    .parse::<u32>()
-                    .unwrap(),
-                Err(err) => return Err(err.to_string()),
-            }
+        let fg_process_pid = match fs::read_to_string(format!("/proc/{}/stat", shell_pid)) {
+            Ok(stat) => stat[(stat.rfind(')').unwrap() + 1)..]
+                .split_whitespace()
+                .nth(5)
+                .unwrap()
+                .parse::<u32>()
+                .unwrap(),
+            Err(err) => return Err(err.to_string()),
         };
 
         // no foreground process is running
@@ -249,13 +224,9 @@ fn get_terminal_process_cmd(
         Ok(None)
     };
     // running process cmd inside an interactive shell let it to be run like if we run it manually
-    let process_cmd = format!(
-        "{}; mkdir /tmp/i3-revive > /dev/null; touch /tmp/i3-revive/{} > /dev/null",
-        get_process_cmd_parts()?
-            .map(|parts| { try_join(parts.iter().map(|s| s.as_str())).unwrap() })
-            .unwrap_or("true".to_string()),
-        window_id
-    );
+    let process_cmd = get_process_cmd_parts()?
+        .map(|parts| { try_join(parts.iter().map(|s| s.as_str())).unwrap() })
+        .unwrap_or("true".to_string());
     let interactive_cmd_parts = [shell_cmd, "-i", "-c", process_cmd.as_str()];
 
     // the title echo should be run on non-interactive shell, as the shell can mess with the window title in interactive mode
