@@ -192,9 +192,9 @@ pub fn restore_workspaces(stream: &mut UnixStream) {
 
     let has_err = if let Err(err) = do_things() {
         eprintln!("Failed to do things: {}", err);
-        false
-    } else {
         true
+    } else {
+        false
     };
 
     for window in &windows {
