@@ -163,7 +163,10 @@ fn get_terminal_process_cmd(
         let mut fg_process_cmd = match get_process_cmd(fg_process_pid) {
             Ok(cmd) => cmd,
             Err(e) => {
-                eprintln!("Warning: cannot get process command of {} from terminal with pid of {}: {}", fg_process_pid, pid, e);
+                eprintln!(
+                    "Warning: cannot get process command of {} from terminal with pid of {}: {}",
+                    fg_process_pid, pid, e
+                );
                 return Ok(None);
             }
         };
@@ -205,12 +208,13 @@ fn get_terminal_process_cmd(
             if let Some(mapping) = matched_mapping {
                 if let Some(command_str) = &mapping.command {
                     let re = Regex::new(r"\{(\d+)\}").unwrap();
-                    let interpolated_command = re.replace_all(command_str, |caps: &regex::Captures| {
-                        let index: usize = caps[1].parse().unwrap();
-                        fg_process_cmd
-                            .get(index)
-                            .map_or("".to_string(), |s| shlex::try_quote(s).unwrap().to_string())
-                    });
+                    let interpolated_command =
+                        re.replace_all(command_str, |caps: &regex::Captures| {
+                            let index: usize = caps[1].parse().unwrap();
+                            fg_process_cmd.get(index).map_or("".to_string(), |s| {
+                                shlex::try_quote(s).unwrap().to_string()
+                            })
+                        });
                     fg_process_cmd = split(&interpolated_command).unwrap();
                 }
             }
@@ -222,7 +226,7 @@ fn get_terminal_process_cmd(
     };
     // running process cmd inside an interactive shell let it to be run like if we run it manually
     let process_cmd = get_process_cmd_parts()?
-        .map(|parts| { try_join(parts.iter().map(|s| s.as_str())).unwrap() })
+        .map(|parts| try_join(parts.iter().map(|s| s.as_str())).unwrap())
         .unwrap_or("true".to_string());
     let process_cmd_with_shell_fallback = format!(
         "true Revive-Terminal-Mark; {}; exec {}",
@@ -315,7 +319,11 @@ pub fn save_processes(windows: Vec<i3_tree::Window>) {
                     }
                 }
                 if let Some(re) = class_regex.as_ref() {
-                    if w.class.as_deref().map(|class| re.is_match(class)).unwrap_or(false) {
+                    if w.class
+                        .as_deref()
+                        .map(|class| re.is_match(class))
+                        .unwrap_or(false)
+                    {
                         score += 1;
                     } else {
                         continue;
@@ -350,9 +358,9 @@ pub fn save_processes(windows: Vec<i3_tree::Window>) {
                         get_process_cmd(pid).ok().map(|original_cmd_parts| {
                             re.replace_all(command_str, |caps: &regex::Captures| {
                                 let index: usize = caps[1].parse().unwrap();
-                                original_cmd_parts
-                                    .get(index)
-                                    .map_or("".to_string(), |s| shlex::try_quote(s).unwrap().to_string())
+                                original_cmd_parts.get(index).map_or("".to_string(), |s| {
+                                    shlex::try_quote(s).unwrap().to_string()
+                                })
                             })
                             .into_owned()
                         })
@@ -419,15 +427,18 @@ pub fn restore_processes() {
             stdout_log_path.push("stdout");
             stdout_log_path.push(format!("{}-{}.log", process_name, timestamp));
             std::fs::create_dir_all(stdout_log_path.parent().unwrap()).unwrap();
-            let stdout_log = File::create(stdout_log_path).expect("Failed to create stdout log file");
+            let stdout_log =
+                File::create(stdout_log_path).expect("Failed to create stdout log file");
 
             let mut stderr_log_path = base_dirs.state_dir().unwrap().to_path_buf();
             stderr_log_path.push("i3-revive");
             stderr_log_path.push("stderr");
             stderr_log_path.push(format!("{}-{}.log", process_name, timestamp));
             std::fs::create_dir_all(stderr_log_path.parent().unwrap()).unwrap();
-            let stderr_log = File::create(stderr_log_path).expect("Failed to create stderr log file");
+            let stderr_log =
+                File::create(stderr_log_path).expect("Failed to create stderr log file");
 
+            #[allow(clippy::zombie_processes)]
             Command::new(program)
                 .args(args)
                 .current_dir(&process.working_directory)

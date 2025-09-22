@@ -51,8 +51,6 @@ pub fn load_config() {
         };
         CONFIG.set(config).unwrap();
     } else {
-        CONFIG
-            .set(default_config)
-            .unwrap();
+        CONFIG.set(default_config).unwrap();
     }
 }

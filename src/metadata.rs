@@ -73,7 +73,8 @@ pub fn restore_metadata(stream: &mut UnixStream) -> io::Result<()> {
         let mut event_stream = connect_i3().expect("Failed to connect to i3");
         let event_it = subscribe_window_event(&mut event_stream).unwrap().unwrap();
         for window_info in event_it.flatten() {
-            if window_info.change == WindowChange::New || window_info.change == WindowChange::Close {
+            if window_info.change == WindowChange::New || window_info.change == WindowChange::Close
+            {
                 let root = get_tree(stream).expect("Failed to get tree");
                 let tree_workspaces = find_workspaces(root);
                 let windows = get_all_windows(&tree_workspaces);
