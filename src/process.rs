@@ -139,10 +139,7 @@ fn get_terminal_process_cmd(
             return Ok(None);
         }
 
-        let is_revived_shell = shell_cmd_parts.get(1).is_some_and(|f| f == "-c")
-            && shell_cmd_parts
-                .get(2)
-                .is_some_and(|a| a.contains("Revive-Terminal-Window-"));
+        let is_revived_shell = shell_cmd_parts.join(" ").contains("Revive-Terminal-Mark");
         if shell_cmd_parts.len() > 1 && !is_revived_shell {
             eprintln!("Warning: shell has additional arguments, fallback to normal revival");
             return Ok(None);
@@ -227,15 +224,23 @@ fn get_terminal_process_cmd(
     let process_cmd = get_process_cmd_parts()?
         .map(|parts| { try_join(parts.iter().map(|s| s.as_str())).unwrap() })
         .unwrap_or("true".to_string());
-    let interactive_cmd_parts = [shell_cmd, "-i", "-c", process_cmd.as_str()];
+    let process_cmd_with_shell_fallback = format!(
+        "true Revive-Terminal-Mark; {}; exec {}",
+        process_cmd, shell_cmd
+    );
+    let process_cmd_parts = [
+        shell_cmd,
+        "-i",
+        "-c",
+        process_cmd_with_shell_fallback.as_str(),
+    ];
 
     // the title echo should be run on non-interactive shell, as the shell can mess with the window title in interactive mode
     // the 0.5s sleep helps the title be displayed long enough to be detected by the swallow window
     let process_with_title_cmd = format!(
-        "echo -ne \"\\033]0;Revive-Terminal-Window-{}\\007\"; sleep 0.5; {}; exec {}",
+        "echo -ne \"\\033]0;Revive-Terminal-Window-{}\\007\"; sleep 0.5; exec {}",
         window_id,
-        &try_join(interactive_cmd_parts).unwrap(),
-        shell_cmd
+        &try_join(process_cmd_parts).unwrap(),
     );
     let cmd_parts = [shell_cmd, "-c", process_with_title_cmd.as_str()];
 
