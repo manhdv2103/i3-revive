@@ -300,7 +300,11 @@ fn convert_to_layout(tree: &mut Value) {
 
             if let Some(class) = props_obj.get("class") {
                 let class = class.as_str().unwrap();
-                criteria = config.window_swallow_criteria.get(class);
+                criteria = config
+                    .window_swallow_criteria
+                    .iter()
+                    .find(|(k, _)| Regex::new(k).unwrap().is_match(class))
+                    .map(|(_, v)| v);
 
                 if criteria.is_none_or(|crit| crit.contains("class")) {
                     swallows.insert(
